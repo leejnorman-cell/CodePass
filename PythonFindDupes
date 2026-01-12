@@ -3,43 +3,64 @@ import hashlib
 import zipfile
 from io import BytesIO
 
-def hash_stream(stream, chunk_size=8192):
+CHUNK = 1024 * 1024  # 1 MB chunks
+
+def hash_stream(stream):
     h = hashlib.sha256()
-    while chunk := stream.read(chunk_size):
+    while True:
+        chunk = stream.read(CHUNK)
+        if not chunk:
+            break
         h.update(chunk)
     return h.hexdigest()
 
-def process_zip(zip_bytes, parent_label, hashes):
-    with zipfile.ZipFile(BytesIO(zip_bytes)) as z:
+def is_zip_stream(stream):
+    """Check if a file-like object is a ZIP by reading only the header."""
+    start = stream.read(4)
+    stream.seek(0)
+    return start == b'PK\x03\x04'
+
+def process_zip_stream(zstream, parent_label, hashes):
+    with zipfile.ZipFile(zstream) as z:
         for member in z.infolist():
             if member.is_dir():
                 continue
 
             label = f"{parent_label} :: {member.filename}"
 
-            # Detect encrypted ZIP member
+            # Detect encrypted ZIP entry
             is_encrypted = member.flag_bits & 0x1
-
             if is_encrypted:
-                # Only compare by filename
-                h = f"ENCRYPTED::{member.filename}"
-                hashes.setdefault(h, []).append(label)
+                key = f"ENCRYPTED::{member.filename}"
+                hashes.setdefault(key, []).append(label)
                 continue
 
-            data = z.read(member.filename)
+            # Open member as a stream
+            with z.open(member, "r") as mstream:
+                # Check if this member is itself a ZIP
+                header = mstream.read(4)
+                mstream.seek(0)
 
-            # If the member is itself a ZIP, recurse
-            if zipfile.is_zipfile(BytesIO(data)):
-                process_zip(data, label, hashes)
-            else:
-                h = hashlib.sha256(data).hexdigest()
-                hashes.setdefault(h, []).append(label)
+                if header == b'PK\x03\x04':
+                    # Nested ZIP — read it in chunks into a BytesIO buffer
+                    # but without loading the whole file at once
+                    nested = BytesIO()
+                    while True:
+                        chunk = mstream.read(CHUNK)
+                        if not chunk:
+                            break
+                        nested.write(chunk)
+                    nested.seek(0)
+                    process_zip_stream(nested, label, hashes)
+                else:
+                    # Normal file — hash by streaming
+                    h = hash_stream(mstream)
+                    hashes.setdefault(h, []).append(label)
 
 def scan_path(path, hashes):
     if zipfile.is_zipfile(path):
         with open(path, "rb") as f:
-            data = f.read()
-        process_zip(data, path, hashes)
+            process_zip_stream(f, path, hashes)
         return
 
     # Normal file on disk

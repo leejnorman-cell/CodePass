@@ -11,12 +11,22 @@ def hash_stream(stream, chunk_size=8192):
 
 def process_zip(zip_bytes, parent_label, hashes):
     with zipfile.ZipFile(BytesIO(zip_bytes)) as z:
-        for member in z.namelist():
-            if member.endswith("/"):
+        for member in z.infolist():
+            if member.is_dir():
                 continue
 
-            data = z.read(member)
-            label = f"{parent_label} :: {member}"
+            label = f"{parent_label} :: {member.filename}"
+
+            # Detect encrypted ZIP member
+            is_encrypted = member.flag_bits & 0x1
+
+            if is_encrypted:
+                # Only compare by filename
+                h = f"ENCRYPTED::{member.filename}"
+                hashes.setdefault(h, []).append(label)
+                continue
+
+            data = z.read(member.filename)
 
             # If the member is itself a ZIP, recurse
             if zipfile.is_zipfile(BytesIO(data)):
@@ -32,7 +42,7 @@ def scan_path(path, hashes):
         process_zip(data, path, hashes)
         return
 
-    # Normal file
+    # Normal file on disk
     with open(path, "rb") as f:
         h = hash_stream(f)
     hashes.setdefault(h, []).append(path)

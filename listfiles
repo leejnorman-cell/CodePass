@@ -1,8 +1,17 @@
-import os
+from pathlib import Path
+import pandas as pd
 
-folder = "/path/to/folder"
+folder = Path("/path/to/folder")
 
-for name in os.listdir(folder):
-    full_path = os.path.join(folder, name)
-    if os.path.isfile(full_path):
-        print(name)
+rows = []
+
+for f in folder.rglob("*"):
+    if f.is_file():
+        rows.append({
+            "file_path": str(f),
+            "file_name": f.name,
+            "file_size": f.stat().st_size
+        })
+
+df = pd.DataFrame(rows)
+print(df)

@@ -1,17 +1,28 @@
 from pathlib import Path
 import pandas as pd
+import zipfile
 
 folder = Path("/path/to/folder")
 
 rows = []
 
+def add_file(path_obj, file_path, file_name, file_size):
+    rows.append({
+        "file_path": file_path,
+        "file_name": file_name,
+        "file_size": file_size
+    })
+
 for f in folder.rglob("*"):
     if f.is_file():
-        rows.append({
-            "file_path": str(f),
-            "file_name": f.name,
-            "file_size": f.stat().st_size
-        })
+        if f.suffix.lower() == ".zip":
+            with zipfile.ZipFile(f, "r") as z:
+                for info in z.infolist():
+                    if not info.is_dir():
+                        internal_path = f"{f}!/{info.filename}"
+                        add_file(f, internal_path, info.filename, info.file_size)
+        else:
+            add_file(f, str(f), f.name, f.stat().st_size)
 
 df = pd.DataFrame(rows)
 print(df)

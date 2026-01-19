@@ -6,11 +6,13 @@ folder = Path("/path/to/folder")
 
 rows = []
 
-def add_file(path_obj, file_path, file_name, file_size):
+def add_file(file_path, file_name, file_size, parent_path, in_zip):
     rows.append({
         "file_path": file_path,
         "file_name": file_name,
-        "file_size": file_size
+        "file_size": file_size,
+        "parent_path": parent_path,
+        "in_zip": in_zip
     })
 
 for f in folder.rglob("*"):
@@ -20,9 +22,23 @@ for f in folder.rglob("*"):
                 for info in z.infolist():
                     if not info.is_dir():
                         internal_path = f"{f}!/{info.filename}"
-                        add_file(f, internal_path, info.filename, info.file_size)
+                        parent = str(f)  # the ZIP file is the parent
+                        add_file(
+                            internal_path,
+                            info.filename,
+                            info.file_size,
+                            parent,
+                            1
+                        )
         else:
-            add_file(f, str(f), f.name, f.stat().st_size)
+            add_file(
+                str(f),
+                f.name,
+                f.stat().st_size,
+                str(f.parent),
+                0
+            )
 
 df = pd.DataFrame(rows)
 print(df)
+
